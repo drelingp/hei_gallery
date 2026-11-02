@@ -1,0 +1,43 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+  html, body {
+    background-color: theme('colors.bone');
+    color: theme('colors.ink');
+  }
+  body {
+    font-family: theme('fontFamily.sans');
+  }
+  h1, h2, h3, .serif {
+    font-family: theme('fontFamily.serif');
+    letter-spacing: -0.01em;
+  }
+  a { @apply underline-offset-4; }
+  a:hover { @apply underline; }
+}
+
+@layer components {
+  .container-page { @apply mx-auto max-w-6xl px-6; }
+  .btn {
+    @apply inline-flex items-center justify-center rounded-full border border-ink/20
+           bg-ink text-bone px-5 py-2 text-sm tracking-wide
+           transition hover:bg-stone disabled:opacity-50;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center rounded-full border border-ink/20
+           bg-transparent text-ink px-5 py-2 text-sm tracking-wide
+           transition hover:bg-ink/5;
+  }
+  .input {
+    @apply w-full rounded-md border border-ink/15 bg-white/70 px-3 py-2 text-sm
+           focus:border-gold focus:outline-none focus:ring-1 focus:ring-gold;
+  }
+  .label { @apply mb-1 block text-xs uppercase tracking-widest text-ink/70; }
+  .card  { @apply rounded-lg border border-ink/10 bg-white/70 p-5 shadow-sm; }
+  .pill  { @apply inline-block rounded-full bg-ink/5 px-3 py-1 text-xs uppercase tracking-widest; }
+}

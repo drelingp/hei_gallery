@@ -1,0 +1,40 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hei
+      POSTGRES_PASSWORD: hei_dev_password
+      POSTGRES_DB: hei_gallery
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hei -d hei_gallery"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 6765
+      DATABASE_URL: postgresql://hei:hei_dev_password@db:5432/hei_gallery?schema=public
+      SESSION_PASSWORD: ${SESSION_PASSWORD:-change-me-to-a-long-random-string-please-rotate}
+      NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:6765}
+      SITE_NAME: ${SITE_NAME:-Hei Gallery}
+      UPLOAD_DIR: /app/data/uploads
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-25}
+      PAYPAL_BUSINESS_EMAIL: ${PAYPAL_BUSINESS_EMAIL:-}
+    volumes:
+      - uploads:/app/data/uploads
+    ports:
+      - "6765:6765"
+
+volumes:
+  db_data:
+  uploads:

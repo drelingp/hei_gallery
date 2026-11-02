@@ -1,0 +1,122 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  passwordHash  String
+  name          String?
+  role          String    @default("ADMIN")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  auditLogs     AuditLog[]
+}
+
+// Allowed Role values: "ADMIN", "EDITOR"
+
+model SiteSettings {
+  id              Int      @id @default(1)
+  siteTitle       String   @default("Hei Gallery")
+  tagline         String   @default("A young artist's collection of drawings and ceramics.")
+  artistName      String   @default("Hei")
+  artistBio       String   @default("")
+  contactEmail    String   @default("")
+  paypalEmail     String?
+  updatedAt       DateTime @updatedAt
+}
+
+model Artwork {
+  id            String   @id @default(cuid())
+  slug          String   @unique
+  title         String
+  description   String   @default("")
+  category      String   @default("DRAWING")
+  status        String   @default("DRAFT")
+  available     Boolean  @default(true)
+  price         Float?
+  currency      String   @default("USD")
+  paypalLink    String?
+  // Visual presentation
+  coverImageId  String?  @unique
+  coverImage    MediaAsset? @relation("ArtworkCover", fields: [coverImageId], references: [id])
+  modelAssetId  String?  @unique
+  modelAsset    MediaAsset? @relation("ArtworkModel", fields: [modelAssetId], references: [id])
+  // 3D placement
+  placements    GalleryPlacement[]
+  inquiries     Inquiry[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// Allowed Category values: "DRAWING", "CERAMIC"
+// Allowed Status values:   "DRAFT", "PUBLISHED"
+
+model MediaAsset {
+  id           String   @id @default(cuid())
+  kind         String
+  filename     String
+  storedPath   String   // path under UPLOAD_DIR; never user-visible directly
+  mimeType     String
+  bytes        Int
+  width        Int?
+  height       Int?
+  createdAt    DateTime @default(now())
+  artworkCover Artwork? @relation("ArtworkCover")
+  artworkModel Artwork? @relation("ArtworkModel")
+}
+
+// Allowed MediaKind values: "IMAGE", "MODEL_GLB"
+
+model GalleryRoom {
+  id          String   @id @default(cuid())
+  name        String
+  description String   @default("")
+  order       Int      @default(0)
+  placements  GalleryPlacement[]
+  createdAt   DateTime @default(now())
+}
+
+model GalleryPlacement {
+  id         String      @id @default(cuid())
+  room       GalleryRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  roomId     String
+  artwork    Artwork     @relation(fields: [artworkId], references: [id], onDelete: Cascade)
+  artworkId  String
+  // Position along an interior wall track (0..1), or pedestal index for ceramics.
+  slot       Int         @default(0)
+  kind       String      @default("WALL")
+  createdAt  DateTime    @default(now())
+  @@unique([roomId, slot, kind])
+}
+
+// Allowed PlacementKind values: "WALL", "PEDESTAL"
+
+model Inquiry {
+  id         String        @id @default(cuid())
+  artwork    Artwork?      @relation(fields: [artworkId], references: [id], onDelete: SetNull)
+  artworkId  String?
+  name       String
+  email      String
+  message    String
+  status     String        @default("NEW")
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+}
+
+// Allowed InquiryStatus values: "NEW", "CONTACTED", "INVOICE_SENT", "SOLD", "CLOSED"
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId    String?
+  action    String
+  target    String?
+  meta      String?
+  createdAt DateTime @default(now())
+}

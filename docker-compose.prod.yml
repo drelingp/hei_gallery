@@ -1,0 +1,31 @@
+# Production overlay: adds Caddy reverse proxy with automatic HTTPS.
+# Usage:
+#   SITE_DOMAIN=gallery.example.com ACME_EMAIL=you@example.com \
+#     docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+services:
+  app:
+    environment:
+      NEXT_PUBLIC_SITE_URL: https://${SITE_DOMAIN}
+    ports: !reset []
+    expose:
+      - "6765"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    ports:
+      - "80:80"
+      - "443:443"
+
+volumes:
+  caddy_data:
+  caddy_config:
