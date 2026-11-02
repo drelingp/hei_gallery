@@ -2,8 +2,9 @@
 FROM node:20-alpine AS deps
 WORKDIR /app
 RUN apk add --no-cache libc6-compat openssl
-COPY package.json ./
+COPY package.json package-lock.json ./
 COPY prisma ./prisma
+COPY scripts/prisma-generate.mjs ./scripts/prisma-generate.mjs
 RUN npm install --no-audit --no-fund
 
 FROM node:20-alpine AS builder
@@ -12,8 +13,11 @@ RUN apk add --no-cache libc6-compat openssl
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN npx prisma generate \
- && npm run build
+# Placeholders let `prisma generate` run without a live database. Runtime
+# receives the real Neon URL from the environment.
+ENV DATABASE_URL=postgresql://placeholder:placeholder@127.0.0.1:5432/placeholder?schema=public
+ENV DATABASE_URL_UNPOOLED=postgresql://placeholder:placeholder@127.0.0.1:5432/placeholder?schema=public
+RUN npm run build
 
 # --- Runtime stage ---
 FROM node:20-alpine AS runner
@@ -22,7 +26,7 @@ RUN apk add --no-cache openssl
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN addgroup -S app && adduser -S app -G app
-RUN mkdir -p /app/data/uploads && chown -R app:app /app
+RUN mkdir -p /app/data && chown -R app:app /app
 
 COPY --from=builder --chown=app:app /app/public ./public
 COPY --from=builder --chown=app:app /app/.next/standalone ./

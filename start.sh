@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
-# One-click local start for Hei Gallery (no Docker required).
+# Local start for Hei Gallery. Requires Postgres (DATABASE_URL) and, for uploads, Cloudflare R2.
 # Usage on macOS: double-click start.command, or run: ./start.sh
 set -e
 
 cd "$(dirname "$0")"
 
 LOCAL_URL="http://localhost:6765"
-PROJECT_ROOT=$(pwd -P)
-echo "── Hei Gallery · one-click start (Node + SQLite, no Docker) ──"
+echo "── Hei Gallery · local start (Postgres + R2) ──"
 
 # 1. Check Node 20+
 if ! command -v node >/dev/null 2>&1; then
@@ -39,17 +38,15 @@ if [ ! -f .env ]; then
   echo "  → .env created."
 fi
 
-# Enforce local defaults every run (idempotent).
+# Enforce local URL defaults every run. Do not rewrite DATABASE_URL — the schema is Postgres.
 awk '
   /^PORT=/{print "PORT=6765"; next}
   /^NEXT_PUBLIC_SITE_URL=/{print "NEXT_PUBLIC_SITE_URL=http://localhost:6765"; next}
-  /^DATABASE_URL=/{print "DATABASE_URL=file:../data/hei.db"; next}
-  /^UPLOAD_DIR=/{print "UPLOAD_DIR=./data/uploads"; next}
   /^NODE_ENV=/{print "NODE_ENV=production"; next}
   {print}
 ' .env > .env.tmp && mv .env.tmp .env
 
-mkdir -p data/uploads
+mkdir -p data
 
 # 3. Install deps (only if missing)
 if [ ! -d node_modules ]; then
@@ -58,10 +55,26 @@ if [ ! -d node_modules ]; then
   npm install --no-audit --no-fund
 fi
 
-# 4. Prisma client + SQLite schema + seed defaults
+# 4. Prisma client + Postgres migrations + seed defaults
 echo "Preparing database…"
+set -a
+# shellcheck disable=SC1091
+source .env
+set +a
+case "${DATABASE_URL:-}" in
+  ""|file:*)
+    echo
+    echo "DATABASE_URL must be a Postgres connection string (Neon, or the Docker db service)."
+    echo "The SQLite file at data/hei.db is no longer used. See the README section"
+    echo "\"Deploy on Vercel (Neon Postgres + Cloudflare R2)\"."
+    exit 1
+    ;;
+esac
+if [ -z "${DATABASE_URL_UNPOOLED:-}" ]; then
+  export DATABASE_URL_UNPOOLED="$DATABASE_URL"
+fi
 npx --yes prisma generate >/dev/null
-npx --yes prisma db push --skip-generate >/dev/null
+npx --yes prisma migrate deploy
 npx --yes tsx prisma/seed.ts >/dev/null 2>&1 || true
 
 # 5. Build if needed
@@ -106,8 +119,6 @@ echo
 echo "Starting server on $LOCAL_URL …"
 mkdir -p data
 PORT=6765 HOSTNAME=0.0.0.0 NODE_ENV=production \
-  DATABASE_URL="file:${PROJECT_ROOT}/data/hei.db" \
-  UPLOAD_DIR="$PROJECT_ROOT/data/uploads" \
   nohup node .next/standalone/server.js \
   >> data/server.log 2>&1 &
 echo $! > .hei.pid
