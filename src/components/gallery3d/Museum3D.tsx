@@ -1435,7 +1435,7 @@ function ExportARRoom() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Player — desktop pointer-lock + keyboard, mobile joystick + drag look
+// Player — desktop click-drag + keyboard, mobile joystick + drag look
 // ─────────────────────────────────────────────────────────────────────────────
 
 type TouchState = {
@@ -1455,6 +1455,11 @@ function isTouchDevice() {
     window.matchMedia?.('(pointer: coarse)').matches
   );
 }
+
+const MOVEMENT_KEYS = new Set([
+  'KeyW', 'KeyA', 'KeyS', 'KeyD',
+  'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+]);
 
 function Player({
   active,
@@ -1489,8 +1494,18 @@ function Player({
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
-      keys.current[e.code] = true;
-      if (active && e.code === 'KeyE') onClickFocused();
+      if (!active || isTouch || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      const target = e.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.isContentEditable || target.closest('input, textarea, select, button, [role="textbox"]'))
+      ) return;
+      if (MOVEMENT_KEYS.has(e.code)) {
+        if (e.cancelable) e.preventDefault();
+        keys.current[e.code] = true;
+      } else if (e.code === 'KeyE') {
+        onClickFocused();
+      }
     };
     const up = (e: KeyboardEvent) => (keys.current[e.code] = false);
     window.addEventListener('keydown', down);
@@ -1542,11 +1557,21 @@ function Player({
       gl.domElement.style.cursor = active && !isTouch ? 'grab' : '';
       if (!wasDrag && active && !isTouch) onClickFocused();
     };
+    const resetInput = () => {
+      keys.current = {};
+      dragging = false;
+      if (activePointerId !== null && gl.domElement.hasPointerCapture(activePointerId)) {
+        gl.domElement.releasePointerCapture(activePointerId);
+      }
+      activePointerId = null;
+      gl.domElement.style.cursor = active && !isTouch ? 'grab' : '';
+    };
 
     gl.domElement.addEventListener('pointerdown', onPointerDown);
     window.addEventListener('pointermove', onPointerMove);
     window.addEventListener('pointerup', onPointerUp);
     window.addEventListener('pointercancel', onPointerUp);
+    window.addEventListener('blur', resetInput);
 
     // Initial cursor hint
     if (active && !isTouch) gl.domElement.style.cursor = 'grab';
@@ -1558,6 +1583,8 @@ function Player({
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerup', onPointerUp);
       window.removeEventListener('pointercancel', onPointerUp);
+      window.removeEventListener('blur', resetInput);
+      resetInput();
       gl.domElement.style.cursor = '';
     };
   }, [active, gl, isTouch, onClickFocused, camera, pitchRef]);
@@ -1752,7 +1779,7 @@ export default function Museum3D({
   const spawn: [number, number, number] = [0, 1.6, LOBBY.d / 2 - 1.5];
 
   return (
-    <div className="relative h-screen w-screen overflow-hidden">
+    <div className="relative h-full w-full overflow-hidden">
       <Canvas
         className="h-full w-full"
         shadows={profile.shadows}
@@ -2133,9 +2160,22 @@ function MobileControls({
   const [stickPos, setStickPos] = useState({ x: 0, y: 0 });
   const stickActive = useRef<{ id: number; cx: number; cy: number } | null>(null);
 
+  const resetStick = useCallback((recenter = true) => {
+    const id = stickActive.current?.id;
+    stickActive.current = null;
+    touchRef.current.moveX = 0;
+    touchRef.current.moveY = 0;
+    if (recenter) setStickPos({ x: 0, y: 0 });
+    if (id !== undefined && stickRef.current?.hasPointerCapture(id)) {
+      stickRef.current.releasePointerCapture(id);
+    }
+  }, [touchRef]);
+
   const onStickStart = (e: React.PointerEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    const el = stickRef.current!;
+    if (stickActive.current || e.button !== 0) return;
+    if (e.cancelable) e.preventDefault();
+    e.stopPropagation();
+    const el = e.currentTarget;
     const rect = el.getBoundingClientRect();
     stickActive.current = {
       id: e.pointerId,
@@ -2147,6 +2187,8 @@ function MobileControls({
   const onStickMove = (e: React.PointerEvent<HTMLDivElement>) => {
     const a = stickActive.current;
     if (!a || a.id !== e.pointerId) return;
+    if (e.cancelable) e.preventDefault();
+    e.stopPropagation();
     const radius = 56;
     const dx = e.clientX - a.cx;
     const dy = e.clientY - a.cy;
@@ -2160,24 +2202,50 @@ function MobileControls({
   };
   const onStickEnd = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!stickActive.current || stickActive.current.id !== e.pointerId) return;
-    stickActive.current = null;
-    setStickPos({ x: 0, y: 0 });
-    touchRef.current.moveX = 0;
-    touchRef.current.moveY = 0;
+    e.stopPropagation();
+    resetStick();
   };
 
   // Right-side look pad
   const lookPadRef = useRef<HTMLDivElement | null>(null);
+  const resetLook = useCallback(() => {
+    const id = touchRef.current.lookId;
+    touchRef.current.lookActive = false;
+    touchRef.current.lookId = null;
+    touchRef.current.lookLastX = 0;
+    touchRef.current.lookLastY = 0;
+    if (id !== null && lookPadRef.current?.hasPointerCapture(id)) {
+      lookPadRef.current.releasePointerCapture(id);
+    }
+  }, [touchRef]);
+
+  useEffect(() => {
+    const reset = () => {
+      resetStick();
+      resetLook();
+    };
+    window.addEventListener('blur', reset);
+    return () => {
+      window.removeEventListener('blur', reset);
+      resetStick(false);
+      resetLook();
+    };
+  }, [resetStick, resetLook]);
+
   const onLookStart = (e: React.PointerEvent<HTMLDivElement>) => {
-    e.preventDefault();
+    if (touchRef.current.lookId !== null || e.button !== 0) return;
+    if (e.cancelable) e.preventDefault();
+    e.stopPropagation();
     touchRef.current.lookActive = true;
     touchRef.current.lookId = e.pointerId;
     touchRef.current.lookLastX = e.clientX;
     touchRef.current.lookLastY = e.clientY;
-    lookPadRef.current?.setPointerCapture(e.pointerId);
+    e.currentTarget.setPointerCapture(e.pointerId);
   };
   const onLookMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!touchRef.current.lookActive || touchRef.current.lookId !== e.pointerId) return;
+    if (e.cancelable) e.preventDefault();
+    e.stopPropagation();
     const dx = e.clientX - touchRef.current.lookLastX;
     const dy = e.clientY - touchRef.current.lookLastY;
     touchRef.current.lookLastX = e.clientX;
@@ -2192,8 +2260,8 @@ function MobileControls({
   };
   const onLookEnd = (e: React.PointerEvent<HTMLDivElement>) => {
     if (touchRef.current.lookId !== e.pointerId) return;
-    touchRef.current.lookActive = false;
-    touchRef.current.lookId = null;
+    e.stopPropagation();
+    resetLook();
   };
 
   // Apply yaw via window event to camera
@@ -2219,7 +2287,8 @@ function MobileControls({
           onPointerMove={onStickMove}
           onPointerUp={onStickEnd}
           onPointerCancel={onStickEnd}
-          className="pointer-events-auto relative h-32 w-32 rounded-full border border-bone/30 bg-black/35 backdrop-blur"
+          onLostPointerCapture={onStickEnd}
+          className="pointer-events-auto touch-none relative h-32 w-32 rounded-full border border-bone/30 bg-black/35 backdrop-blur"
         >
           <div
             className="absolute left-1/2 top-1/2 h-12 w-12 rounded-full bg-bone/70"
@@ -2235,7 +2304,8 @@ function MobileControls({
         onPointerMove={onLookMove}
         onPointerUp={onLookEnd}
         onPointerCancel={onLookEnd}
-        className="pointer-events-auto fixed right-0 top-16 bottom-44 z-30 w-1/2"
+        onLostPointerCapture={onLookEnd}
+        className="pointer-events-auto touch-none fixed right-0 top-16 bottom-44 z-30 w-1/2"
       />
     </>
   );
