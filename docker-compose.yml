@@ -24,17 +24,19 @@ services:
       NODE_ENV: production
       PORT: 6765
       DATABASE_URL: postgresql://hei:hei_dev_password@db:5432/hei_gallery?schema=public
+      DATABASE_URL_UNPOOLED: postgresql://hei:hei_dev_password@db:5432/hei_gallery?schema=public
       SESSION_PASSWORD: ${SESSION_PASSWORD:-change-me-to-a-long-random-string-please-rotate}
       NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:6765}
       SITE_NAME: ${SITE_NAME:-Hei Gallery}
-      UPLOAD_DIR: /app/data/uploads
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-25}
       PAYPAL_BUSINESS_EMAIL: ${PAYPAL_BUSINESS_EMAIL:-}
-    volumes:
-      - uploads:/app/data/uploads
+      R2_ACCOUNT_ID: ${R2_ACCOUNT_ID:-}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
+      R2_BUCKET: ${R2_BUCKET:-}
+      R2_PUBLIC_URL: ${R2_PUBLIC_URL:-}
     ports:
       - "6765:6765"
 
 volumes:
   db_data:
-  uploads:

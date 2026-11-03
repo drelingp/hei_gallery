@@ -8,9 +8,9 @@ artworks. Read it once before going online, and re-read after any major change.
 - `SESSION_PASSWORD` must be at least 32 characters. Use
   `openssl rand -base64 48` to generate one. The app refuses to start in
   production if this is missing or short.
-- Database credentials and any future API keys live only in `.env` (loaded by
-  Docker Compose) or in your deployment platform's secret manager. Never commit
-  `.env`.
+- Database credentials, `SESSION_PASSWORD`, and R2 keys live only in `.env`
+  (gitignored) or in the host's secret manager (Vercel environment variables).
+  Never commit `.env`.
 - Rotate `SESSION_PASSWORD` if you ever suspect it was exposed; doing so logs
   out all admin sessions.
 
@@ -38,12 +38,15 @@ artworks. Read it once before going online, and re-read after any major change.
   `.glb` for 3D models.
 - Magic-byte sanity check on every uploaded file.
 - Maximum file size is `MAX_UPLOAD_MB` (default 25 MB).
-- Files are stored under `UPLOAD_DIR` outside the Next.js public folder and
-  served through the controlled `/media/:id` route, which sets
-  `X-Content-Type-Options: nosniff` and an inline disposition with a safe
-  filename.
-- Stored filenames are randomized; original filenames are sanitized and only
-  used as a display/download name.
+- Files are stored in Cloudflare R2. `storedPath` is the object key
+  (`images/<random>.<ext>` or `models/<random>.glb`), not a disk path.
+- `/media/:id` redirects to `R2_PUBLIC_URL/<key>` when that variable is set, so
+  large GLBs are not proxied through the app. The bucket must allow public
+  reads; keys are unguessable. Set a CORS policy that allows GET/HEAD/PUT from
+  the site origin (PUT is the presigned admin upload).
+- Files larger than 4 MB are uploaded with a presigned PUT. The server checks
+  magic bytes and size after the object lands, and deletes it if the check fails.
+- Original filenames are sanitized and only used as a display name.
 
 ## Rate limiting
 
@@ -73,9 +76,9 @@ store (Redis) before relying on the limits.
 
 ## Backups
 
-- Database: `docker compose exec db pg_dump -U hei hei_gallery > backup.sql`
-- Media: archive the `uploads` Docker volume (see `README.md`).
-- Restore order: restore the database first, then the media volume.
+- Database: Neon point-in-time restore, or `pg_dump` from the direct (unpooled) URL.
+- Media: the R2 bucket. Object keys in `MediaAsset.storedPath` must match the bucket.
+- Restore order: restore the database first, then make sure the same object keys exist in R2.
 
 ## Threats deliberately out of scope at launch
 

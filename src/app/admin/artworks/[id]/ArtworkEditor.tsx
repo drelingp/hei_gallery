@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useCsrf } from '@/lib/useCsrf';
+import { SERVER_UPLOAD_MAX_BYTES } from '@/lib/upload-limits';
 
 type A = {
   id: string;
@@ -21,6 +22,7 @@ export default function ArtworkEditor({ csrf, artwork }: { csrf: string | null; 
   const { csrfLoading, csrfError, ensureCsrf } = useCsrf(csrf);
   const [a, setA] = useState(artwork);
   const [msg, setMsg] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   async function save(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -41,26 +43,100 @@ export default function ArtworkEditor({ csrf, artwork }: { csrf: string | null; 
     }
   }
 
+  function rememberAsset(kind: 'IMAGE' | 'MODEL_GLB', assetId: string) {
+    if (kind === 'IMAGE') setA((prev) => ({ ...prev, coverImageId: assetId }));
+    else setA((prev) => ({ ...prev, modelAssetId: assetId }));
+    setMsg('Uploaded.');
+  }
+
   async function upload(file: File, kind: 'IMAGE' | 'MODEL_GLB') {
     const token = await ensureCsrf();
     if (!token) {
       setMsg('Could not prepare the secure form token. Please refresh and try again.');
       return;
     }
+    setUploading(true);
+    setMsg(kind === 'MODEL_GLB' ? 'Uploading 3D model…' : 'Uploading image…');
+    try {
+      if (file.size > SERVER_UPLOAD_MAX_BYTES) {
+        await uploadPresigned(file, kind, token);
+      } else {
+        await uploadMultipart(file, kind, token);
+      }
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : 'Upload failed.');
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function uploadMultipart(file: File, kind: 'IMAGE' | 'MODEL_GLB', token: string) {
     const form = new FormData();
     form.set('csrf', token);
     form.set('kind', kind);
     form.set('file', file);
     const r = await fetch(`/api/admin/artworks/${a.id}/media`, { method: 'POST', body: form });
-    if (r.ok) {
-      const j = await r.json();
-      if (kind === 'IMAGE') setA({ ...a, coverImageId: j.asset.id });
-      else setA({ ...a, modelAssetId: j.asset.id });
-      setMsg('Uploaded.');
-    } else {
-      const j = await r.json().catch(() => ({ error: 'Upload failed.' }));
-      setMsg(j.error ?? 'Upload failed.');
+    const j = (await r.json().catch(() => ({ error: 'Upload failed.' }))) as {
+      error?: string;
+      asset?: { id: string };
+    };
+    if (!r.ok || !j.asset) throw new Error(j.error ?? 'Upload failed.');
+    rememberAsset(kind, j.asset.id);
+  }
+
+  async function uploadPresigned(file: File, kind: 'IMAGE' | 'MODEL_GLB', token: string) {
+    const mimeType = file.type || (kind === 'MODEL_GLB' ? 'model/gltf-binary' : '');
+    const presign = await fetch(`/api/admin/artworks/${a.id}/media`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        action: 'presign',
+        csrf: token,
+        kind,
+        filename: file.name,
+        mimeType,
+        bytes: file.size,
+      }),
+    });
+    const signed = (await presign.json().catch(() => ({ error: 'Could not start upload.' }))) as {
+      error?: string;
+      uploadUrl?: string;
+      headers?: Record<string, string>;
+      key?: string;
+    };
+    if (!presign.ok || !signed.uploadUrl || !signed.key) {
+      throw new Error(signed.error ?? 'Could not start upload.');
     }
+
+    const put = await fetch(signed.uploadUrl, {
+      method: 'PUT',
+      headers: signed.headers,
+      body: file,
+    });
+    if (!put.ok) {
+      throw new Error(
+        `Upload to storage failed (${put.status}). Check that the R2 bucket CORS policy allows PUT from this site.`,
+      );
+    }
+
+    const done = await fetch(`/api/admin/artworks/${a.id}/media`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        action: 'complete',
+        csrf: token,
+        kind,
+        filename: file.name,
+        mimeType,
+        key: signed.key,
+      }),
+    });
+    const j = (await done.json().catch(() => ({ error: 'Upload failed.' }))) as {
+      error?: string;
+      asset?: { id: string };
+    };
+    if (!done.ok || !j.asset) throw new Error(j.error ?? 'Upload failed.');
+    rememberAsset(kind, j.asset.id);
   }
 
   async function del() {
@@ -124,8 +200,8 @@ export default function ArtworkEditor({ csrf, artwork }: { csrf: string | null; 
           <textarea name="description" aria-label="Description" rows={6} defaultValue={a.description} className="input" />
         </div>
         <div className="flex items-center gap-3">
-          <button className="btn" type="submit" disabled={csrfLoading}>Save</button>
-          <button type="button" className="btn-ghost text-red-700" onClick={del} disabled={csrfLoading}>Delete</button>
+          <button className="btn" type="submit" disabled={csrfLoading || uploading}>Save</button>
+          <button type="button" className="btn-ghost text-red-700" onClick={del} disabled={csrfLoading || uploading}>Delete</button>
           {(msg || csrfError) && <span className="text-sm text-ink/70">{msg ?? csrfError}</span>}
         </div>
       </form>
@@ -145,6 +221,7 @@ export default function ArtworkEditor({ csrf, artwork }: { csrf: string | null; 
             type="file"
             accept="image/jpeg,image/png,image/webp"
             onChange={(e) => e.target.files && upload(e.target.files[0], 'IMAGE')}
+            disabled={uploading}
           />
         </div>
         {a.category === 'CERAMIC' && (
@@ -155,12 +232,13 @@ export default function ArtworkEditor({ csrf, artwork }: { csrf: string | null; 
             ) : (
               <p className="mt-2 text-sm text-ink/60">No 3D model yet. Visitors will see the photo on a pedestal.</p>
             )}
-            <label className="label mt-4">Upload a .glb file (≤ env MAX_UPLOAD_MB)</label>
+            <label className="label mt-4">Upload a .glb file (≤ env MAX_UPLOAD_MB). Larger models upload directly to storage.</label>
             <input
               aria-label="Upload 3D model"
               type="file"
               accept=".glb,model/gltf-binary"
               onChange={(e) => e.target.files && upload(e.target.files[0], 'MODEL_GLB')}
+              disabled={uploading}
             />
           </div>
         )}
