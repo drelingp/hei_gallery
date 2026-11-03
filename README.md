@@ -3,12 +3,18 @@
 A ready-to-use self-hosted website for a young artist's gallery.
 
 - Museum-style public site with featured works, collections, and per-artwork pages.
-- **3D walking museum** (mouse + WASD/arrows) showing drawings on walls and ceramics on pedestals — uploaded 3D models (GLB) are supported and rotate gently.
+- **3D walking museum** (mouse + WASD/arrows, or dual-thumb touch controls) showing drawings on walls and ceramics on pedestals — uploaded 3D models (GLB) are supported and rotate gently.
 - **Private admin area** at `/admin` for the artist or family maintainer: create/edit drawings and ceramics, upload images and GLB models, edit the personal introduction, and manage inquiries.
 - **Inquiry-first sales** with an optional PayPal bridge per artwork (PayPal.me, payment, or invoice link).
 - Security baked in: hashed passwords, signed encrypted session cookies, CSRF tokens, schema validation, upload allowlists with magic-byte checks, rate limiting, and strict response headers.
 
 > Production runs on **Vercel**, with **Neon Postgres** for data and **Cloudflare R2** for images and GLB models.
+
+## Museum controls
+
+On desktop, use WASD/arrows to walk, click-drag to look, and a short click or E to open the focused artwork. On mobile, use the left joystick to walk and the right pad to look, including both thumbs at once; tap the focus card to open an artwork.
+
+The pads own their touch gestures to prevent browser panning, and movement resets on release, cancellation, pause, or window blur. Page scrolling and overscroll are locked only while the museum is mounted (including loading/paused views), with prior styles restored on exit. Other pages and overlay buttons retain normal touch behavior.
 
 ---
 

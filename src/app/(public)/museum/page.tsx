@@ -44,7 +44,7 @@ export default async function MuseumPage() {
     }));
 
   return (
-    <div className="fixed inset-0 bg-stone text-bone">
+    <div className="fixed inset-0 overflow-hidden bg-stone text-bone">
       <Museum3DClient drawings={drawings} crafts={crafts} scans={scans} />
     </div>
   );
