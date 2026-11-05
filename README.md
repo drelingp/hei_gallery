@@ -16,6 +16,8 @@ On desktop, use WASD/arrows to walk, click-drag to look, and a short click or E 
 
 The pads own their touch gestures to prevent browser panning, and movement resets on release, cancellation, pause, or window blur. Page scrolling and overscroll are locked only while the museum is mounted (including loading/paused views), with prior styles restored on exit. Other pages and overlay buttons retain normal touch behavior.
 
+Each of the four lobby passages has one ceiling-hung, double-sided wayfinding sign: the lobby-facing side names the adjoining gallery, and the return side points to the Entrance Lobby.
+
 ---
 
 ## Deploy on Vercel (Neon Postgres + Cloudflare R2)

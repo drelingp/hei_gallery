@@ -59,7 +59,12 @@ type Room = Rect & {
 // `axis` is the direction of travel through the corridor: 'z' = north-south,
 // 'x' = east-west. It is explicit (not inferred from w/d) so that short-but-wide
 // connectors render their walls on the correct sides instead of sealing the passage.
-type Corridor = Rect & { height: number; axis: 'x' | 'z' };
+type Corridor = Rect & {
+  height: number;
+  axis: 'x' | 'z';
+  destination: string;
+  signRotationY: number;
+};
 
 const DOOR_W = 4;
 const WALL_T = 0.25;
@@ -131,10 +136,10 @@ const ROOMS: Room[] = [LOBBY, DRAWING, CRAFTS, SCANS, EXPORT_ROOM];
 // Lobby half-extents: w/2 = 8, d/2 = 7. `axis` is the travel direction; for N/S
 // connectors the depth (d) is the short span and the width (w) matches the door.
 const CORRIDORS: Corridor[] = [
-  { cx: 0, cz: -8.5, w: DOOR_W, d: 3, height: ROOM_H, axis: 'z' }, // lobby N → drawings S (drawings south = -22+12 = -10)
-  { cx: 10, cz: 0, w: 4, d: DOOR_W, height: ROOM_H, axis: 'x' }, // lobby E → crafts W (crafts west = 22-10 = 12)
-  { cx: -10, cz: 0, w: 4, d: DOOR_W, height: ROOM_H, axis: 'x' }, // lobby W → scans E (scans east = -22+10 = -12)
-  { cx: 0, cz: 8.5, w: DOOR_W, d: 3, height: ROOM_H, axis: 'z' }, // lobby S → export N (export north = 18-8 = 10)
+  { cx: 0, cz: -8.5, w: DOOR_W, d: 3, height: ROOM_H, axis: 'z', destination: DRAWING.name, signRotationY: 0 }, // lobby N → drawings S (drawings south = -22+12 = -10)
+  { cx: 10, cz: 0, w: 4, d: DOOR_W, height: ROOM_H, axis: 'x', destination: CRAFTS.name, signRotationY: -Math.PI / 2 }, // lobby E → crafts W (crafts west = 22-10 = 12)
+  { cx: -10, cz: 0, w: 4, d: DOOR_W, height: ROOM_H, axis: 'x', destination: SCANS.name, signRotationY: Math.PI / 2 }, // lobby W → scans E (scans east = -22+10 = -12)
+  { cx: 0, cz: 8.5, w: DOOR_W, d: 3, height: ROOM_H, axis: 'z', destination: EXPORT_ROOM.name, signRotationY: Math.PI }, // lobby S → export N (export north = 18-8 = 10)
 ];
 
 // Walkable rectangles (XZ): rooms + corridors. Player position must lie within at least one.
@@ -404,7 +409,7 @@ function makeSignTexture(line1: string, line2?: string) {
   ctx.font = 'bold 56px Georgia, serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(line1, w / 2, line2 ? h / 2 - 28 : h / 2);
+  ctx.fillText(line1, w / 2, line2 ? h / 2 - 28 : h / 2, w - 48);
   if (line2) {
     ctx.font = '32px Georgia, serif';
     ctx.fillStyle = '#d6c69a';
@@ -853,7 +858,6 @@ function CorridorBox({ c }: { c: Corridor }) {
   // Corridor is open-ended along its travel axis; walls go only on the long sides.
   // Use the explicit axis so the open ends always face the rooms being connected.
   const isNS = c.axis === 'z'; // runs north-south
-  const halfLen = (isNS ? c.d : c.w) / 2;
   const sideOffset = (isNS ? c.w : c.d) / 2 + WALL_T / 2;
   return (
     <group position={[c.cx, 0, c.cz]}>
@@ -881,34 +885,54 @@ function CorridorBox({ c }: { c: Corridor }) {
         <boxGeometry args={[0.6, 0.05, 0.6]} />
         <meshStandardMaterial color="#ffeeb8" emissive="#ffeeb8" emissiveIntensity={0.7} />
       </mesh>
-      {/* Directional sign at far end */}
-      <DirectionalSign axis={isNS ? 'z' : 'x'} length={halfLen} />
+      <DirectionalSign height={c.height} destination={c.destination} rotationY={c.signRotationY} />
     </group>
   );
 }
 
-function DirectionalSign({ axis, length }: { axis: 'x' | 'z'; length: number }) {
-  // Hangs from ceiling near the far end of the corridor toward the destination.
-  // We don't know which end is "far" generically, so place one at each end.
-  const tex = useMemo(() => makeSignTexture('Gallery', '↑ this way'), []);
-  const yPos = 3.4;
+function DirectionalSign({
+  height,
+  destination,
+  rotationY,
+}: {
+  height: number;
+  destination: string;
+  rotationY: number;
+}) {
+  const textures = useMemo(() => ({
+    front: makeSignTexture(destination, '↑ this way'),
+    back: makeSignTexture(LOBBY.name, '↑ this way'),
+  }), [destination]);
+  useEffect(() => () => {
+    textures.front.dispose();
+    textures.back.dispose();
+  }, [textures]);
+
+  const boardHeight = 0.8;
+  const drop = 0.3;
+  const yPos = height - drop - boardHeight / 2;
   return (
-    <>
-      <mesh
-        position={axis === 'z' ? [0, yPos, -length + 0.4] : [-length + 0.4, yPos, 0]}
-        rotation={axis === 'z' ? [0, 0, 0] : [0, Math.PI / 2, 0]}
-      >
-        <planeGeometry args={[1.6, 0.8]} />
-        <meshBasicMaterial map={tex} toneMapped={false} side={THREE.DoubleSide} />
+    <group name="directional-sign" position={[0, yPos, 0]} rotation={[0, rotationY, 0]}>
+      <mesh>
+        <boxGeometry args={[1.6, boardHeight, 0.06]} />
+        <meshStandardMaterial color="#161310" roughness={0.8} />
       </mesh>
-      <mesh
-        position={axis === 'z' ? [0, yPos, length - 0.4] : [length - 0.4, yPos, 0]}
-        rotation={axis === 'z' ? [0, Math.PI, 0] : [0, -Math.PI / 2, 0]}
-      >
+      {[-0.55, 0.55].map((x) => (
+        <mesh key={x} position={[x, boardHeight / 2 + drop / 2, 0]}>
+          {/* Overlap the board and ceiling slightly to avoid visible seams. */}
+          <boxGeometry args={[0.03, drop + 0.02, 0.03]} />
+          <meshStandardMaterial color="#5b4a2a" roughness={0.8} />
+        </mesh>
+      ))}
+      <mesh position={[0, 0, 0.031]}>
         <planeGeometry args={[1.6, 0.8]} />
-        <meshBasicMaterial map={tex} toneMapped={false} side={THREE.DoubleSide} />
+        <meshBasicMaterial map={textures.front} toneMapped={false} side={THREE.FrontSide} />
       </mesh>
-    </>
+      <mesh position={[0, 0, -0.031]} rotation={[0, Math.PI, 0]}>
+        <planeGeometry args={[1.6, 0.8]} />
+        <meshBasicMaterial map={textures.back} toneMapped={false} side={THREE.FrontSide} />
+      </mesh>
+    </group>
   );
 }
 
@@ -962,40 +986,12 @@ function WallSign({
 function Lobby() {
   return (
     <group position={[LOBBY.cx, 0, LOBBY.cz]}>
-      {/* Welcome sign on the south wall (the wall the player faces when spawning) */}
-      <WallSign position={[0, 3.55, LOBBY.d / 2 - 0.13]} rotationY={Math.PI} line1="Hei Gallery" line2="welcome" />
-
-      {/* Directional signs near each doorway */}
+      {/* Keep the welcome sign on solid wall, clear of the south passage. */}
       <WallSign
-        position={[-LOBBY.w / 2 + 0.13, 2.4, 0]}
-        rotationY={Math.PI / 2}
-        line1="Scan Showcase"
-        line2="←"
-        width={2.4}
-        height={1.2}
-      />
-      <WallSign
-        position={[LOBBY.w / 2 - 0.13, 2.4, 0]}
-        rotationY={-Math.PI / 2}
-        line1="3D Crafting Hall"
-        line2="→"
-        width={2.4}
-        height={1.2}
-      />
-      <WallSign
-        position={[0, 2.4, -LOBBY.d / 2 + 0.13]}
-        line1="Drawing Gallery"
-        line2="↑"
-        width={2.4}
-        height={1.2}
-      />
-      <WallSign
-        position={[LOBBY.w / 2 - 2.85, 2.15, LOBBY.d / 2 - 0.13]}
+        position={[LOBBY.w / 2 - 2.85, 3.55, LOBBY.d / 2 - 0.13]}
         rotationY={Math.PI}
-        line1="Export & AR"
-        line2="↓"
-        width={2.0}
-        height={1.0}
+        line1="Hei Gallery"
+        line2="welcome"
       />
 
       {/* Benches in the corners */}
