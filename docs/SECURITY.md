@@ -40,10 +40,18 @@ artworks. Read it once before going online, and re-read after any major change.
 - Maximum file size is `MAX_UPLOAD_MB` (default 25 MB).
 - Files are stored in Cloudflare R2. `storedPath` is the object key
   (`images/<random>.<ext>` or `models/<random>.glb`), not a disk path.
-- `/media/:id` redirects to `R2_PUBLIC_URL/<key>` when that variable is set, so
+- `/media/:id` and `/api/assets/:id` redirect to `R2_PUBLIC_URL/<key>` when that variable is set, so
   large GLBs are not proxied through the app. The bucket must allow public
-  reads; keys are unguessable. Set a CORS policy that allows GET/HEAD/PUT from
-  the site origin (PUT is the presigned admin upload).
+  reads; keys are unguessable, but are not an authorization mechanism. Set a
+  CORS policy that allows GET/HEAD/PUT from the exact site origin,
+  `https://hei-gallery.vercel.app` in production (PUT is the presigned admin
+  upload). Preserve other explicitly required origins instead of allowing `*`.
+  CORS does not restrict non-browser clients or make public objects private.
+- WebGL textures and GLBs require `Access-Control-Allow-Origin` on the final
+  R2 response even when the request starts on the app's origin. Setting that
+  header only on the redirect is insufficient. See the README's R2 setup and
+  verification commands. The museum isolates asset failures with placeholders
+  and console diagnostics; this does not replace correct bucket configuration.
 - Files larger than 4 MB are uploaded with a presigned PUT. The server checks
   magic bytes and size after the object lands, and deletes it if the check fails.
 - Original filenames are sanitized and only used as a display name.

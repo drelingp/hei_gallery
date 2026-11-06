@@ -1,7 +1,9 @@
 'use client';
 
 import {
+  Component,
   Suspense,
+  type ReactNode,
   useCallback,
   useEffect,
   useMemo,
@@ -393,9 +395,8 @@ function makeLabelTexture(title: string, subtitle?: string) {
   return tex;
 }
 
-function makeSignTexture(line1: string, line2?: string) {
+function makeSignTexture(line1: string, line2?: string, h = 256) {
   const w = 512;
-  const h = 256;
   const c = document.createElement('canvas');
   c.width = w;
   c.height = h;
@@ -1082,6 +1083,98 @@ function buildDrawingSlots(n: number) {
   return slots;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Per-asset loading isolation — a pending or failed texture/GLB must not suspend
+// or unmount the rest of the museum.
+// ─────────────────────────────────────────────────────────────────────────────
+
+type AssetKind = 'texture' | 'model';
+type AssetStatus = 'loading' | 'failed';
+
+type AssetErrorBoundaryProps = {
+  kind: AssetKind;
+  url: string;
+  fallback: ReactNode;
+  children: ReactNode;
+};
+
+class AssetErrorBoundary extends Component<AssetErrorBoundaryProps, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: unknown) {
+    console.error(`[Museum3D] Failed to load ${this.props.kind} asset: ${this.props.url}`, error);
+  }
+
+  render() {
+    return this.state.failed ? this.props.fallback : this.props.children;
+  }
+}
+
+// Local error boundary + Suspense for a single asset. Keyed by URL so a replaced
+// asset starts fresh instead of inheriting a previous failure.
+function AssetSlot({
+  kind,
+  url,
+  loading,
+  failed,
+  children,
+}: {
+  kind: AssetKind;
+  url: string;
+  loading: ReactNode;
+  failed: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <AssetErrorBoundary key={url} kind={kind} url={url} fallback={failed}>
+      <Suspense fallback={loading}>{children}</Suspense>
+    </AssetErrorBoundary>
+  );
+}
+
+// Same object the museum always showed for crafts without media.
+function StandPlaceholder({ y, status }: { y: number; status?: AssetStatus }) {
+  return (
+    <mesh position={[0, y + 0.35, 0]} castShadow userData={{ assetStatus: status }}>
+      <cylinderGeometry args={[0.18, 0.22, 0.55, 24]} />
+      <meshStandardMaterial color="#b08a3e" roughness={0.4} metalness={0.1} />
+    </mesh>
+  );
+}
+
+function CraftMedia({ craft, y }: { craft: Craft; y: number }) {
+  const { modelUrl, imageUrl } = craft;
+  const image = imageUrl ? (
+    <AssetSlot
+      kind="texture"
+      url={imageUrl}
+      loading={<StandPlaceholder y={y} status="loading" />}
+      failed={<StandPlaceholder y={y} status="failed" />}
+    >
+      <PhotoStand url={imageUrl} y={y} />
+    </AssetSlot>
+  ) : null;
+  if (modelUrl) {
+    return (
+      <AssetSlot
+        kind="model"
+        url={modelUrl}
+        loading={<StandPlaceholder y={y} status="loading" />}
+        failed={image ?? <StandPlaceholder y={y} status="failed" />}
+      >
+        <GlbModel url={modelUrl} y={y} scaleTarget={0.7} />
+      </AssetSlot>
+    );
+  }
+  return image ?? <StandPlaceholder y={y} />;
+}
+
+const DRAWING_PLACEHOLDER_ASPECT = 1;
+
 function FramedDrawing({
   drawing,
   position,
@@ -1091,9 +1184,63 @@ function FramedDrawing({
   position: [number, number, number];
   rotationY: number;
 }) {
-  const tex = useTexture(drawing.imageUrl);
+  const labelTex = useMemo(() => makeLabelTexture(drawing.title), [drawing.title]);
+
+  return (
+    <group
+      position={position}
+      rotation={[0, rotationY, 0]}
+      userData={{ slug: drawing.slug, title: drawing.title, focusable: true }}
+    >
+      <AssetSlot
+        kind="texture"
+        url={drawing.imageUrl}
+        loading={<DrawingPlaceholder labelTex={labelTex} status="loading" />}
+        failed={<DrawingPlaceholder labelTex={labelTex} status="failed" />}
+      >
+        <TexturedDrawing url={drawing.imageUrl} labelTex={labelTex} />
+      </AssetSlot>
+    </group>
+  );
+}
+
+function TexturedDrawing({ url, labelTex }: { url: string; labelTex: THREE.Texture }) {
+  const tex = useTexture(url);
   tex.colorSpace = THREE.SRGBColorSpace;
   const aspect = (tex.image?.width ?? 1) / (tex.image?.height ?? 1) || 1;
+  return (
+    <DrawingFrame aspect={aspect} labelTex={labelTex}>
+      <meshBasicMaterial map={tex} toneMapped={false} />
+    </DrawingFrame>
+  );
+}
+
+function DrawingPlaceholder({ labelTex, status }: { labelTex: THREE.Texture; status: AssetStatus }) {
+  const tex = useMemo(
+    () =>
+      status === 'loading'
+        ? makeSignTexture('Loading…', undefined, 512)
+        : makeSignTexture('Image', 'unavailable', 512),
+    [status],
+  );
+  return (
+    <DrawingFrame aspect={DRAWING_PLACEHOLDER_ASPECT} labelTex={labelTex} status={status}>
+      <meshBasicMaterial map={tex} toneMapped={false} />
+    </DrawingFrame>
+  );
+}
+
+function DrawingFrame({
+  aspect,
+  labelTex,
+  status,
+  children,
+}: {
+  aspect: number;
+  labelTex: THREE.Texture;
+  status?: AssetStatus;
+  children: ReactNode;
+}) {
   const artH = 1.4;
   const artW = artH * aspect;
   const matPad = 0.2;
@@ -1103,14 +1250,8 @@ function FramedDrawing({
   const frameW = matW + frameThickness * 2;
   const frameH = matH + frameThickness * 2;
 
-  const labelTex = useMemo(() => makeLabelTexture(drawing.title), [drawing.title]);
-
   return (
-    <group
-      position={position}
-      rotation={[0, rotationY, 0]}
-      userData={{ slug: drawing.slug, title: drawing.title, focusable: true }}
-    >
+    <group userData={{ assetStatus: status }}>
       {/* Frame */}
       <mesh position={[0, 0, -0.04]} castShadow>
         <boxGeometry args={[frameW, frameH, 0.06]} />
@@ -1124,7 +1265,7 @@ function FramedDrawing({
       {/* Artwork canvas */}
       <mesh position={[0, 0, 0.001]}>
         <planeGeometry args={[artW, artH]} />
-        <meshBasicMaterial map={tex} toneMapped={false} />
+        {children}
       </mesh>
       {/* Glass-like overlay */}
       <mesh position={[0, 0, 0.012]}>
@@ -1228,16 +1369,7 @@ function CraftDisplay({
       </mesh>
       {/* Object on turntable */}
       <Turntable rotate={rotation}>
-        {craft.modelUrl ? (
-          <GlbModel url={craft.modelUrl} y={1.05} scaleTarget={0.7} />
-        ) : craft.imageUrl ? (
-          <PhotoStand url={craft.imageUrl} y={1.05} />
-        ) : (
-          <mesh position={[0, 1.4, 0]} castShadow>
-            <cylinderGeometry args={[0.18, 0.22, 0.55, 24]} />
-            <meshStandardMaterial color="#b08a3e" roughness={0.4} metalness={0.1} />
-          </mesh>
-        )}
+        <CraftMedia craft={craft} y={1.05} />
       </Turntable>
       {/* Glass case */}
       <GlassCase center={[0, 1.05, 0]} size={[0.85, 1.0, 0.85]} />

@@ -18,6 +18,8 @@ The pads own their touch gestures to prevent browser panning, and movement reset
 
 Each of the four lobby passages has one ceiling-hung, double-sided wayfinding sign: the lobby-facing side names the adjoining gallery, and the return side points to the Entrance Lobby.
 
+Images and models load independently. A loading or unavailable drawing keeps its frame and plaque; an unavailable model falls back to its photo, or a pedestal placeholder if that photo is also unavailable. Other artworks and movement remain available. Asset failures are logged in the browser console with their URL; placeholders do not fix an underlying storage or CORS problem.
+
 ---
 
 ## Deploy on Vercel (Neon Postgres + Cloudflare R2)
@@ -44,12 +46,12 @@ npm run db:seed
 1. Create a bucket (for example `hei-gallery`).
 2. Create an API token with Object Read & Write on that bucket. Put the token in `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY`. `R2_ACCOUNT_ID` is the Cloudflare account id (the S3 endpoint is `https://<accountid>.r2.cloudflarestorage.com`).
 3. Allow public reads via the r2.dev subdomain or a custom domain. Set `R2_PUBLIC_URL` to that base, with no trailing slash (for example `https://pub-xxxx.r2.dev`). The database stores the object key (`images/…` or `models/…`); the site redirects `/media/:id` to `R2_PUBLIC_URL/<key>`.
-4. Add a CORS policy so the browser can load images and GLBs, and so the admin can PUT large files directly:
+4. In **Cloudflare dashboard > R2 Object Storage > your bucket > Settings > CORS Policy**, add or edit the policy below and save it. Preserve any other required origins in your existing policy. Both `/media/:id` and `/api/assets/:id` redirect to the public R2 object, so WebGL image textures and GLB requests need CORS headers on the **final R2 response**, not just the app response. The admin also needs PUT permission to upload large files directly:
 
 ```json
 [
   {
-    "AllowedOrigins": ["https://your-domain.vercel.app", "http://localhost:6765"],
+    "AllowedOrigins": ["https://hei-gallery.vercel.app", "http://localhost:6765"],
     "AllowedMethods": ["GET", "HEAD", "PUT"],
     "AllowedHeaders": ["*"],
     "ExposeHeaders": ["ETag"],
@@ -57,6 +59,36 @@ npm run db:seed
   }
 ]
 ```
+
+Use exact origins (scheme and hostname, without a trailing slash). Add your custom domain or individual preview origins only when needed; do not replace the list with `*` just to hide a loading error. CORS is a browser access policy, not authentication: these objects remain publicly readable.
+
+### Verify asset CORS
+
+Use a known image asset ID and its R2 object URL. For example, the following commands check the reported production image:
+
+```bash
+curl -sS -L -D - -o /dev/null \
+  -H 'Origin: https://hei-gallery.vercel.app' \
+  'https://hei-gallery.vercel.app/api/assets/cmw4fwj8f000096bivris94rn'
+
+curl -sS -D - -o /dev/null \
+  -H 'Origin: https://hei-gallery.vercel.app' \
+  'https://pub-f00530828f974b0e94324c127b1ab319.r2.dev/images/bf8d38b68a3b9a1ad03e520e6b16cc02.jpg'
+```
+
+The final successful response must include `Access-Control-Allow-Origin: https://hei-gallery.vercel.app`. Repeat with a known GLB asset. A successful redirect or a normal image on the collection page alone does not verify WebGL CORS.
+
+For presigned uploads, check the actual signed PUT URL's preflight without sending an upload (replace the example URL; never publish a live signed URL):
+
+```bash
+curl -sS -X OPTIONS -D - -o /dev/null \
+  -H 'Origin: https://hei-gallery.vercel.app' \
+  -H 'Access-Control-Request-Method: PUT' \
+  -H 'Access-Control-Request-Headers: content-type' \
+  'https://ACCOUNT_ID.r2.cloudflarestorage.com/BUCKET/OBJECT?SIGNED_QUERY'
+```
+
+Confirm the response allows the origin, PUT and `content-type`. After saving CORS, reopen `/museum` in a fresh browser session and confirm the actual textures and models appear without CORS errors. If you use a cached custom domain, purge its affected cached objects when old responses retain missing headers. Keep `R2_PUBLIC_URL`: proxying large assets through an app function can exceed Vercel's response-size limit.
 
 Files at or under 4 MB still upload through the admin API (magic-byte checked, then written to R2). Larger files — usually GLB models — ask for a presigned PUT URL and upload straight to R2, because Vercel request bodies are capped at 4.5 MB. After the PUT, the server checks size and file-magic bytes and only then writes the `MediaAsset` row.
 
