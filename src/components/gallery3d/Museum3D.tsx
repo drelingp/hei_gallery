@@ -1371,8 +1371,6 @@ function CraftDisplay({
       <Turntable rotate={rotation}>
         <CraftMedia craft={craft} y={1.05} />
       </Turntable>
-      {/* Glass case */}
-      <GlassCase center={[0, 1.05, 0]} size={[0.85, 1.0, 0.85]} />
       {/* Object label on plinth front */}
       <mesh position={[0, 0.7, 0.46]}>
         <planeGeometry args={[0.7, 0.22]} />
@@ -1400,34 +1398,6 @@ function Turntable({ rotate, children }: { rotate: boolean; children: React.Reac
   return <group ref={ref}>{children}</group>;
 }
 
-function GlassCase({
-  center,
-  size,
-}: {
-  center: [number, number, number];
-  size: [number, number, number];
-}) {
-  const [cx, cy, cz] = center;
-  const [w, h, d] = size;
-  return (
-    <group position={[cx, cy, cz]}>
-      <mesh>
-        <boxGeometry args={[w, h, d]} />
-        <meshPhysicalMaterial
-          transparent
-          opacity={0.12}
-          roughness={0.05}
-          transmission={0.9}
-          thickness={0.02}
-          clearcoat={1}
-          clearcoatRoughness={0.05}
-          ior={1.45}
-        />
-      </mesh>
-    </group>
-  );
-}
-
 function GlbModel({
   url,
   y,
@@ -1438,15 +1408,22 @@ function GlbModel({
   scaleTarget?: number;
 }) {
   const gltf = useGLTF(url);
-  const scaled = useMemo(() => {
+  const { scale, offset } = useMemo(() => {
     const box = new THREE.Box3().setFromObject(gltf.scene);
     const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
     const maxDim = Math.max(size.x, size.y, size.z) || 1;
-    return scaleTarget / maxDim;
+    // Offset is in pre-scale units. The inner group keeps the cached gltf.scene unmodified.
+    return {
+      scale: scaleTarget / maxDim,
+      offset: [-center.x, -box.min.y, -center.z] as [number, number, number],
+    };
   }, [gltf, scaleTarget]);
   return (
-    <group position={[0, y, 0]} scale={scaled}>
-      <primitive object={gltf.scene} />
+    <group position={[0, y, 0]} scale={scale}>
+      <group position={offset}>
+        <primitive object={gltf.scene} />
+      </group>
     </group>
   );
 }
