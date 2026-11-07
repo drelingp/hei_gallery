@@ -12,8 +12,8 @@
 - Format: **GLB** (binary glTF 2.0).
 - Keep models under 5 MB if possible; aim for 50k triangles or fewer.
 - Bake materials and textures into the GLB.
-- Make sure the model is centered near the origin; the museum will scale it to
-  fit a small display area on top of a pedestal.
+- You do not need to center the model on the origin. The museum scales it to fit
+  a small display area and stands it on the pedestal automatically.
 - If you do not have a 3D model yet, just upload a photo as the cover image —
   the ceramic will still appear on the pedestal as a framed photo.
 
