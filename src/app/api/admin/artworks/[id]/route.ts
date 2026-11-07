@@ -4,6 +4,8 @@ import { getSession, assertCsrf } from '@/lib/auth';
 import { artworkSchema } from '@/lib/validation';
 import { deleteStored } from '@/lib/storage';
 import { audit } from '@/lib/audit';
+import { setArtworkZone } from '@/lib/zone-store';
+import { isZoneAllowed, isZoneKey, type ArtworkCategory, type ZoneKey } from '@/lib/zones';
 
 async function requireAuth() {
   const s = await getSession();
@@ -20,9 +22,24 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (!parsed.success) {
     return NextResponse.json({ error: 'Invalid input' }, { status: 400 });
   }
-  const updated = await prisma.artwork.update({
-    where: { id },
-    data: parsed.data,
+
+  // Missing field: leave the museum placement unchanged. Empty value: automatic placement.
+  const zoneField = form.has('museumZone') ? String(form.get('museumZone') ?? '') : null;
+  const current = await prisma.artwork.findUnique({ where: { id }, select: { category: true } });
+  if (!current) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  const category = (parsed.data.category ?? current.category) as ArtworkCategory;
+  let zone: ZoneKey | null = null;
+  if (zoneField) {
+    if (!isZoneKey(zoneField) || !isZoneAllowed(category, zoneField)) {
+      return NextResponse.json({ error: 'This zone cannot hold this category' }, { status: 400 });
+    }
+    zone = zoneField;
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const item = await tx.artwork.update({ where: { id }, data: parsed.data });
+    if (zoneField !== null) await setArtworkZone(tx, id, category, zone);
+    return item;
   });
   await audit(s.userId!, 'artwork.update', id);
   return NextResponse.json({ item: updated });

@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider  = "postgresql"
   // Runtime queries. On Neon this is the pooled URL (hostname contains `-pooler`).
   url       = env("DATABASE_URL")
   // Prisma Migrate. On Neon this is the direct URL (no `-pooler`).
@@ -63,7 +63,7 @@ model Artwork {
 // Allowed Status values:   "DRAFT", "PUBLISHED"
 
 model MediaAsset {
-  id           String    @id @default(cuid())
+  id           String   @id @default(cuid())
   kind         String
   filename     String
   // R2 object key (images/<id>.<ext> or models/<id>.glb). Not a local filesystem path.
@@ -72,21 +72,28 @@ model MediaAsset {
   bytes        Int
   width        Int?
   height       Int?
-  createdAt    DateTime  @default(now())
-  artworkCover Artwork?  @relation("ArtworkCover")
-  artworkModel Artwork?  @relation("ArtworkModel")
+  createdAt    DateTime @default(now())
+  artworkCover Artwork? @relation("ArtworkCover")
+  artworkModel Artwork? @relation("ArtworkModel")
 }
 
 // Allowed MediaKind values: "IMAGE", "MODEL_GLB"
 
 model GalleryRoom {
-  id          String             @id @default(cuid())
-  name        String
-  description String             @default("")
-  order       Int                @default(0)
-  placements  GalleryPlacement[]
-  createdAt   DateTime           @default(now())
+  id           String             @id @default(cuid())
+  name         String
+  description  String             @default("")
+  order        Int                @default(0)
+  // Set for the museum zones that the 3D museum renders. Rows without a zoneKey are unused.
+  zoneKey      String?            @unique
+  // Wall-sign text shown in the zone. Empty means the built-in default is used.
+  signTitle    String             @default("")
+  signSubtitle String             @default("")
+  placements   GalleryPlacement[]
+  createdAt    DateTime           @default(now())
 }
+
+// Allowed ZoneKey values: "lobby", "drawings", "crafts", "scans", "export"
 
 model GalleryPlacement {
   id        String      @id @default(cuid())
@@ -94,7 +101,7 @@ model GalleryPlacement {
   roomId    String
   artwork   Artwork     @relation(fields: [artworkId], references: [id], onDelete: Cascade)
   artworkId String
-  // Position along an interior wall track (0..1), or pedestal index for ceramics.
+  // Display order within the zone, starting at 0. Used for the wall track or pedestal index.
   slot      Int         @default(0)
   kind      String      @default("WALL")
   createdAt DateTime    @default(now())

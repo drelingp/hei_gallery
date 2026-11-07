@@ -2,6 +2,8 @@ import { notFound, redirect } from 'next/navigation';
 import Link from 'next/link';
 import { prisma } from '@/lib/db';
 import { adminExists, getCsrf, getSession } from '@/lib/auth';
+import { loadZoneTexts } from '@/lib/zone-store';
+import { isZoneAllowed, isZoneKey } from '@/lib/zones';
 import ArtworkEditor from './ArtworkEditor';
 
 export const dynamic = 'force-dynamic';
@@ -13,10 +15,18 @@ export default async function EditArtwork({ params }: { params: Promise<{ id: st
   const { id } = await params;
   const item = await prisma.artwork.findUnique({
     where: { id },
-    include: { coverImage: true, modelAsset: true },
+    include: {
+      coverImage: true,
+      modelAsset: true,
+      placements: { select: { room: { select: { zoneKey: true } } } },
+    },
   });
   if (!item) notFound();
   const csrf = await getCsrf();
+  const placedZone = item.placements.find((p) => p.room.zoneKey)?.room.zoneKey ?? null;
+  const museumZone =
+    placedZone && isZoneKey(placedZone) && isZoneAllowed(item.category, placedZone) ? placedZone : null;
+  const zones = await loadZoneTexts();
   return (
     <div className="grid gap-6">
       <div className="flex items-center justify-between">
@@ -25,6 +35,7 @@ export default async function EditArtwork({ params }: { params: Promise<{ id: st
       </div>
       <ArtworkEditor
         csrf={csrf}
+        zones={zones}
         artwork={{
           id: item.id,
           title: item.title,
@@ -37,6 +48,7 @@ export default async function EditArtwork({ params }: { params: Promise<{ id: st
           paypalLink: item.paypalLink,
           coverImageId: item.coverImageId,
           modelAssetId: item.modelAssetId,
+          museumZone,
         }}
       />
     </div>

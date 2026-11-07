@@ -3,6 +3,7 @@
 import dynamic from 'next/dynamic';
 import { useEffect } from 'react';
 import type { Drawing, Craft, Scan } from '@/components/gallery3d/Museum3D';
+import type { ZoneTexts } from '@/lib/zones';
 
 const Museum3D = dynamic(() => import('@/components/gallery3d/Museum3D'), {
   ssr: false,
@@ -17,6 +18,7 @@ export default function Museum3DClient(props: {
   drawings: Drawing[];
   crafts: Craft[];
   scans: Scan[];
+  zones: ZoneTexts;
 }) {
   useEffect(() => {
     const savedStyles = [document.documentElement, document.body].map((element) => {

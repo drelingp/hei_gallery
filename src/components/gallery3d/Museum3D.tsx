@@ -2,9 +2,11 @@
 
 import {
   Component,
+  createContext,
   Suspense,
   type ReactNode,
   useCallback,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -14,6 +16,7 @@ import Link from 'next/link';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { useGLTF, useTexture, Html } from '@react-three/drei';
 import * as THREE from 'three';
+import { ZONE_DEFAULTS, type ZoneKey, type ZoneTexts } from '@/lib/zones';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public types
@@ -47,14 +50,19 @@ const QUALITY: Record<Quality, QualityProfile> = {
   high: { dpr: [1, 2], shadows: true, spotlightLimit: 16, fog: [22, 70], modelRotation: true },
 };
 
+// Zone names and wall-sign text edited in the admin. Provided by Museum3D. Canvas children read it through R3F's context bridge.
+const ZoneTextsContext = createContext<ZoneTexts>(ZONE_DEFAULTS);
+function useZoneTexts() {
+  return useContext(ZoneTextsContext);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Museum layout — rooms, corridors, door openings, walkable rectangles
 // ─────────────────────────────────────────────────────────────────────────────
 
 type Rect = { cx: number; cz: number; w: number; d: number };
 type Room = Rect & {
-  id: string;
-  name: string;
+  id: ZoneKey;
   height: number;
   doors: { side: 'N' | 'S' | 'E' | 'W'; width: number }[];
 };
@@ -64,7 +72,7 @@ type Room = Rect & {
 type Corridor = Rect & {
   height: number;
   axis: 'x' | 'z';
-  destination: string;
+  destinationZone: ZoneKey;
   signRotationY: number;
 };
 
@@ -74,7 +82,6 @@ const ROOM_H = 5;
 
 const LOBBY: Room = {
   id: 'lobby',
-  name: 'Entrance Lobby',
   cx: 0,
   cz: 0,
   w: 16,
@@ -90,7 +97,6 @@ const LOBBY: Room = {
 
 const DRAWING: Room = {
   id: 'drawings',
-  name: 'Drawing Gallery',
   cx: 0,
   cz: -22,
   w: 24,
@@ -101,7 +107,6 @@ const DRAWING: Room = {
 
 const CRAFTS: Room = {
   id: 'crafts',
-  name: '3D Crafting Hall',
   cx: 22,
   cz: 0,
   w: 20,
@@ -112,7 +117,6 @@ const CRAFTS: Room = {
 
 const SCANS: Room = {
   id: 'scans',
-  name: 'Scan Showcase',
   cx: -22,
   cz: 0,
   w: 20,
@@ -123,7 +127,6 @@ const SCANS: Room = {
 
 const EXPORT_ROOM: Room = {
   id: 'export',
-  name: 'Export & AR Room',
   cx: 0,
   cz: 18,
   w: 18,
@@ -138,10 +141,10 @@ const ROOMS: Room[] = [LOBBY, DRAWING, CRAFTS, SCANS, EXPORT_ROOM];
 // Lobby half-extents: w/2 = 8, d/2 = 7. `axis` is the travel direction; for N/S
 // connectors the depth (d) is the short span and the width (w) matches the door.
 const CORRIDORS: Corridor[] = [
-  { cx: 0, cz: -8.5, w: DOOR_W, d: 3, height: ROOM_H, axis: 'z', destination: DRAWING.name, signRotationY: 0 }, // lobby N → drawings S (drawings south = -22+12 = -10)
-  { cx: 10, cz: 0, w: 4, d: DOOR_W, height: ROOM_H, axis: 'x', destination: CRAFTS.name, signRotationY: -Math.PI / 2 }, // lobby E → crafts W (crafts west = 22-10 = 12)
-  { cx: -10, cz: 0, w: 4, d: DOOR_W, height: ROOM_H, axis: 'x', destination: SCANS.name, signRotationY: Math.PI / 2 }, // lobby W → scans E (scans east = -22+10 = -12)
-  { cx: 0, cz: 8.5, w: DOOR_W, d: 3, height: ROOM_H, axis: 'z', destination: EXPORT_ROOM.name, signRotationY: Math.PI }, // lobby S → export N (export north = 18-8 = 10)
+  { cx: 0, cz: -8.5, w: DOOR_W, d: 3, height: ROOM_H, axis: 'z', destinationZone: 'drawings', signRotationY: 0 }, // lobby N → drawings S (drawings south = -22+12 = -10)
+  { cx: 10, cz: 0, w: 4, d: DOOR_W, height: ROOM_H, axis: 'x', destinationZone: 'crafts', signRotationY: -Math.PI / 2 }, // lobby E → crafts W (crafts west = 22-10 = 12)
+  { cx: -10, cz: 0, w: 4, d: DOOR_W, height: ROOM_H, axis: 'x', destinationZone: 'scans', signRotationY: Math.PI / 2 }, // lobby W → scans E (scans east = -22+10 = -12)
+  { cx: 0, cz: 8.5, w: DOOR_W, d: 3, height: ROOM_H, axis: 'z', destinationZone: 'export', signRotationY: Math.PI }, // lobby S → export N (export north = 18-8 = 10)
 ];
 
 // Walkable rectangles (XZ): rooms + corridors. Player position must lie within at least one.
@@ -886,24 +889,27 @@ function CorridorBox({ c }: { c: Corridor }) {
         <boxGeometry args={[0.6, 0.05, 0.6]} />
         <meshStandardMaterial color="#ffeeb8" emissive="#ffeeb8" emissiveIntensity={0.7} />
       </mesh>
-      <DirectionalSign height={c.height} destination={c.destination} rotationY={c.signRotationY} />
+      <DirectionalSign height={c.height} destinationZone={c.destinationZone} rotationY={c.signRotationY} />
     </group>
   );
 }
 
 function DirectionalSign({
   height,
-  destination,
+  destinationZone,
   rotationY,
 }: {
   height: number;
-  destination: string;
+  destinationZone: ZoneKey;
   rotationY: number;
 }) {
+  const zones = useZoneTexts();
+  const destination = zones[destinationZone].name;
+  const origin = zones.lobby.name;
   const textures = useMemo(() => ({
     front: makeSignTexture(destination, '↑ this way'),
-    back: makeSignTexture(LOBBY.name, '↑ this way'),
-  }), [destination]);
+    back: makeSignTexture(origin, '↑ this way'),
+  }), [destination, origin]);
   useEffect(() => () => {
     textures.front.dispose();
     textures.back.dispose();
@@ -985,14 +991,15 @@ function WallSign({
 }
 
 function Lobby() {
+  const zones = useZoneTexts();
   return (
     <group position={[LOBBY.cx, 0, LOBBY.cz]}>
       {/* Keep the welcome sign on solid wall, clear of the south passage. */}
       <WallSign
         position={[LOBBY.w / 2 - 2.85, 3.55, LOBBY.d / 2 - 0.13]}
         rotationY={Math.PI}
-        line1="Hei Gallery"
-        line2="welcome"
+        line1={zones.lobby.signTitle}
+        line2={zones.lobby.signSubtitle}
       />
 
       {/* Benches in the corners */}
@@ -1038,11 +1045,16 @@ function PlinthLabel({
 // ─────────────────────────────────────────────────────────────────────────────
 
 function DrawingGallery({ drawings }: { drawings: Drawing[] }) {
+  const zones = useZoneTexts();
   // Place along the long walls (east/west walls of the drawings room).
   const slots = useMemo(() => buildDrawingSlots(drawings.length), [drawings.length]);
   return (
     <group position={[DRAWING.cx, 0, DRAWING.cz]}>
-      <WallSign position={[0, 3.4, -DRAWING.d / 2 + 0.13]} line1="Drawing Gallery" />
+      <WallSign
+        position={[0, 3.4, -DRAWING.d / 2 + 0.13]}
+        line1={zones.drawings.signTitle}
+        line2={zones.drawings.signSubtitle}
+      />
       {/* Spotlights for each slot */}
       {slots.map((s, i) => {
         const dw = drawings[i];
@@ -1166,7 +1178,7 @@ function CraftMedia({ craft, y }: { craft: Craft; y: number }) {
         loading={<StandPlaceholder y={y} status="loading" />}
         failed={image ?? <StandPlaceholder y={y} status="failed" />}
       >
-        <GlbModel url={modelUrl} y={y} scaleTarget={0.7} />
+        <GlbModel url={modelUrl} y={y} scaleTarget={MODEL_TARGET_SIZE} />
       </AssetSlot>
     );
   }
@@ -1304,10 +1316,15 @@ function DrawingFrame({
 // ─────────────────────────────────────────────────────────────────────────────
 
 function CraftingHall({ crafts, modelRotation }: { crafts: Craft[]; modelRotation: boolean }) {
+  const zones = useZoneTexts();
   const slots = useMemo(() => buildCraftSlots(crafts.length), [crafts.length]);
   return (
     <group position={[CRAFTS.cx, 0, CRAFTS.cz]}>
-      <WallSign position={[0, 3.4, -CRAFTS.d / 2 + 0.13]} line1="3D Crafting Hall" />
+      <WallSign
+        position={[0, 3.4, -CRAFTS.d / 2 + 0.13]}
+        line1={zones.crafts.signTitle}
+        line2={zones.crafts.signSubtitle}
+      />
       {slots.map((s, i) => {
         const c = crafts[i];
         if (!c) return null;
@@ -1398,10 +1415,13 @@ function Turntable({ rotate, children }: { rotate: boolean; children: React.Reac
   return <group ref={ref}>{children}</group>;
 }
 
+// Longest bounding-box side (metres) that a displayed GLB model is scaled to.
+const MODEL_TARGET_SIZE = 1.4;
+
 function GlbModel({
   url,
   y,
-  scaleTarget = 0.7,
+  scaleTarget = MODEL_TARGET_SIZE,
 }: {
   url: string;
   y: number;
@@ -1447,10 +1467,15 @@ function PhotoStand({ url, y }: { url: string; y: number }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function ScanShowcase({ scans, modelRotation }: { scans: Scan[]; modelRotation: boolean }) {
+  const zones = useZoneTexts();
   const slots = useMemo(() => buildCraftSlots(Math.max(scans.length, 0)), [scans.length]);
   return (
     <group position={[SCANS.cx, 0, SCANS.cz]}>
-      <WallSign position={[0, 3.4, -SCANS.d / 2 + 0.13]} line1="Scan Showcase" />
+      <WallSign
+        position={[0, 3.4, -SCANS.d / 2 + 0.13]}
+        line1={zones.scans.signTitle}
+        line2={zones.scans.signSubtitle}
+      />
       {scans.length === 0 ? (
         <EmptyShowcasePlaceholder
           line1="Generated scans"
@@ -1502,9 +1527,15 @@ function EmptyShowcasePlaceholder({
 // ─────────────────────────────────────────────────────────────────────────────
 
 function ExportARRoom() {
+  const zones = useZoneTexts();
   return (
     <group position={[EXPORT_ROOM.cx, 0, EXPORT_ROOM.cz]}>
-      <WallSign position={[0, 3.4, EXPORT_ROOM.d / 2 - 0.13]} rotationY={Math.PI} line1="Export & AR" line2="coming soon" />
+      <WallSign
+        position={[0, 3.4, EXPORT_ROOM.d / 2 - 0.13]}
+        rotationY={Math.PI}
+        line1={zones.export.signTitle}
+        line2={zones.export.signSubtitle}
+      />
 
       {/* AR preview plinth */}
       <group position={[-3, 0, 0]}>
@@ -1817,6 +1848,22 @@ function buildObstacles(drawingsCount: number, craftsCount: number, scansCount: 
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function Museum3D({
+  zones,
+  ...props
+}: {
+  drawings: Drawing[];
+  crafts: Craft[];
+  scans: Scan[];
+  zones: ZoneTexts;
+}) {
+  return (
+    <ZoneTextsContext.Provider value={zones}>
+      <MuseumScene {...props} />
+    </ZoneTextsContext.Provider>
+  );
+}
+
+function MuseumScene({
   drawings,
   crafts,
   scans,
@@ -1971,6 +2018,7 @@ export default function Museum3D({
 // GTA-style mini-map. Reads camera transform via window.__heiCamera and paints
 // a top-down view of the rooms, corridors, and player chevron.
 function MiniMap({ isTouch }: { isTouch: boolean }) {
+  const zones = useZoneTexts();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const labelRef = useRef<HTMLDivElement | null>(null);
   const size = isTouch ? 130 : 170;
@@ -2047,7 +2095,7 @@ function MiniMap({ isTouch }: { isTouch: boolean }) {
             cam.position.z >= room.cz - room.d / 2 &&
             cam.position.z <= room.cz + room.d / 2
           ) {
-            currentRoom = room.name;
+            currentRoom = zones[room.id].name;
             break;
           }
         }
@@ -2080,7 +2128,7 @@ function MiniMap({ isTouch }: { isTouch: boolean }) {
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [size]);
+  }, [size, zones]);
 
   // Place desktop bottom-left; on touch, top-left under the exit bar to avoid joystick.
   const positionClass = isTouch ? 'top-16 left-3' : 'bottom-6 left-6';
@@ -2090,7 +2138,7 @@ function MiniMap({ isTouch }: { isTouch: boolean }) {
         ref={labelRef}
         className="mb-1 inline-block rounded-full bg-black/60 px-2 py-0.5 text-[10px] uppercase tracking-widest text-bone backdrop-blur"
       >
-        Entrance Lobby
+        {zones.lobby.name}
       </div>
       <canvas
         ref={canvasRef}
