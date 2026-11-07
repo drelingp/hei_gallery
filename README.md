@@ -115,6 +115,8 @@ Set these environment variables for Production (and Preview, if previews should 
 
 Redeploy after the first `prisma migrate deploy`. Visit `/admin` to create the admin account.
 
+**Deploy order for schema changes:** Vercel does not run migrations. When a release adds a folder under `prisma/migrations`, run `npm run prisma:deploy` with the direct `DATABASE_URL_UNPOOLED` before or right after the Vercel deploy. Until it runs, pages that read the new columns fail with a server error. For example, a missing `GalleryRoom.zoneKey` column breaks `/museum`, `/admin/zones`, and the artwork editor.
+
 ### Local development
 
 Requirements: Node.js 20+.
