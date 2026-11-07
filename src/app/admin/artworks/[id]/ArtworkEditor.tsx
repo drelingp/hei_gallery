@@ -3,6 +3,13 @@
 import { useState } from 'react';
 import { useCsrf } from '@/lib/useCsrf';
 import { SERVER_UPLOAD_MAX_BYTES } from '@/lib/upload-limits';
+import {
+  ASSIGNABLE_ZONES,
+  isZoneAllowed,
+  type ArtworkCategory,
+  type ZoneKey,
+  type ZoneTexts,
+} from '@/lib/zones';
 
 type A = {
   id: string;
@@ -16,11 +23,22 @@ type A = {
   paypalLink: string | null;
   coverImageId: string | null;
   modelAssetId: string | null;
+  museumZone: ZoneKey | null;
 };
 
-export default function ArtworkEditor({ csrf, artwork }: { csrf: string | null; artwork: A }) {
+export default function ArtworkEditor({
+  csrf,
+  artwork,
+  zones,
+}: {
+  csrf: string | null;
+  artwork: A;
+  zones: ZoneTexts;
+}) {
   const { csrfLoading, csrfError, ensureCsrf } = useCsrf(csrf);
   const [a, setA] = useState(artwork);
+  const [category, setCategory] = useState<ArtworkCategory>(artwork.category);
+  const [zone, setZone] = useState<ZoneKey | ''>(artwork.museumZone ?? '');
   const [msg, setMsg] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
 
@@ -163,7 +181,17 @@ export default function ArtworkEditor({ csrf, artwork }: { csrf: string | null; 
         <div className="grid gap-4 md:grid-cols-2">
           <div>
             <label className="label">Category</label>
-            <select name="category" aria-label="Category" defaultValue={a.category} className="input">
+            <select
+              name="category"
+              aria-label="Category"
+              value={category}
+              onChange={(e) => {
+                const next = e.target.value as ArtworkCategory;
+                setCategory(next);
+                if (zone && !isZoneAllowed(next, zone)) setZone('');
+              }}
+              className="input"
+            >
               <option value="DRAWING">Drawing</option>
               <option value="CERAMIC">Ceramic</option>
             </select>
@@ -194,6 +222,28 @@ export default function ArtworkEditor({ csrf, artwork }: { csrf: string | null; 
             <label className="label">PayPal link (optional)</label>
             <input name="paypalLink" aria-label="PayPal link" type="url" defaultValue={a.paypalLink ?? ''} className="input" />
           </div>
+        </div>
+        <div>
+          <label className="label">Museum zone</label>
+          <select
+            name="museumZone"
+            aria-label="Museum zone"
+            value={zone}
+            onChange={(e) => setZone(e.target.value as ZoneKey | '')}
+            className="input"
+          >
+            <option value="">Automatic</option>
+            {ASSIGNABLE_ZONES[category].map((key) => (
+              <option key={key} value={key}>
+                {zones[key].name}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-xs text-ink/60">
+            {zone
+              ? 'Shown in this zone, after works already placed there.'
+              : 'Automatic: drawings go to the drawing gallery. Ceramics go to the scan showcase if the slug starts with "scan-", otherwise to the crafting hall.'}
+          </p>
         </div>
         <div>
           <label className="label">Description</label>

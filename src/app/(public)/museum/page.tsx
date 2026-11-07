@@ -1,31 +1,52 @@
 import { prisma } from '@/lib/db';
+import { loadZoneTexts } from '@/lib/zone-store';
+import { isZoneAllowed, isZoneKey, resolveZone } from '@/lib/zones';
 import Museum3DClient from '@/components/gallery3d/Museum3DClient';
 
 export const dynamic = 'force-dynamic';
 
 export default async function MuseumPage() {
-  const works = await prisma.artwork.findMany({
-    where: { status: 'PUBLISHED' },
-    include: { coverImage: true, modelAsset: true },
-    orderBy: { createdAt: 'asc' },
-  });
+  const [works, zones] = await Promise.all([
+    prisma.artwork.findMany({
+      where: { status: 'PUBLISHED' },
+      include: {
+        coverImage: true,
+        modelAsset: true,
+        placements: { select: { slot: true, room: { select: { zoneKey: true } } } },
+      },
+      orderBy: { createdAt: 'asc' },
+    }),
+    loadZoneTexts(),
+  ]);
 
   const url = (id: string) => `/api/assets/${id}`;
-  // Slug convention: any artwork whose slug starts with "scan-" lives in the scan showcase.
-  const isScan = (slug: string) => slug.toLowerCase().startsWith('scan-');
 
-  const drawings = works
-    .filter((w) => w.category === 'DRAWING' && w.coverImage)
-    .map((w) => ({
+  // Works assigned to a zone come first, in slot order. The rest keep their createdAt order.
+  const ranked = works
+    .map((w) => {
+      const placement = w.placements.find((p) => p.room.zoneKey);
+      const assigned = placement?.room.zoneKey;
+      const pinned = assigned && isZoneKey(assigned) && isZoneAllowed(w.category, assigned) ? assigned : null;
+      return {
+        w,
+        zone: resolveZone(w.category, w.slug, pinned),
+        order: pinned && placement ? placement.slot : Number.MAX_SAFE_INTEGER,
+      };
+    })
+    .sort((a, b) => a.order - b.order);
+
+  const drawings = ranked
+    .filter(({ w, zone }) => zone === 'drawings' && w.coverImage)
+    .map(({ w }) => ({
       id: w.id,
       slug: w.slug,
       title: w.title,
       imageUrl: url(w.coverImage!.id),
     }));
 
-  const crafts = works
-    .filter((w) => w.category === 'CERAMIC' && !isScan(w.slug))
-    .map((w) => ({
+  const crafts = ranked
+    .filter(({ zone }) => zone === 'crafts')
+    .map(({ w }) => ({
       id: w.id,
       slug: w.slug,
       title: w.title,
@@ -33,9 +54,9 @@ export default async function MuseumPage() {
       imageUrl: w.coverImage ? url(w.coverImage.id) : null,
     }));
 
-  const scans = works
-    .filter((w) => w.category === 'CERAMIC' && isScan(w.slug))
-    .map((w) => ({
+  const scans = ranked
+    .filter(({ zone }) => zone === 'scans')
+    .map(({ w }) => ({
       id: w.id,
       slug: w.slug,
       title: w.title,
@@ -45,7 +66,7 @@ export default async function MuseumPage() {
 
   return (
     <div className="fixed inset-0 overflow-hidden bg-stone text-bone">
-      <Museum3DClient drawings={drawings} crafts={crafts} scans={scans} />
+      <Museum3DClient drawings={drawings} crafts={crafts} scans={scans} zones={zones} />
     </div>
   );
 }

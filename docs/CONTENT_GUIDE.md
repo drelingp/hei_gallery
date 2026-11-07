@@ -12,8 +12,8 @@
 - Format: **GLB** (binary glTF 2.0).
 - Keep models under 5 MB if possible; aim for 50k triangles or fewer.
 - Bake materials and textures into the GLB.
-- You do not need to center the model on the origin. The museum scales it to fit
-  a small display area and stands it on the pedestal automatically.
+- You do not need to center the model on the origin. The museum scales its longest
+  side to about 1.4 m and stands it on the pedestal automatically.
 - If you do not have a 3D model yet, just upload a photo as the cover image —
   the ceramic will still appear on the pedestal as a framed photo.
 
@@ -26,6 +26,20 @@
    ceramic, also upload its GLB model.
 4. Set Status to **Published** and Save. The piece will immediately appear in
    the public collection and the 3D museum.
+
+## Museum zones
+
+The 3D museum has five zones: entrance lobby, drawing gallery, 3D crafting hall,
+scan showcase, and export & AR room.
+
+- **Zone text:** open *Admin → Zones*. Each zone has a *Map and direction-sign name*,
+  a *Wall sign title*, and an optional *Wall sign subtitle*. Leave the subtitle empty
+  to hide the second line. Zones you never save keep the built-in text.
+- **Artwork placement:** on an artwork's edit page, pick a *Museum zone*. Drawings can go
+  to the drawing gallery. Ceramics can go to the crafting hall or the scan showcase.
+  Choose *Automatic* to use the default rule: drawings go to the drawing gallery, and
+  ceramics go to the scan showcase if the slug starts with `scan-`, otherwise the
+  crafting hall. Lobby and export room show no artworks.
 
 ## Inquiry flow
 

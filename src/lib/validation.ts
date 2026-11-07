@@ -41,6 +41,20 @@ export const settingsSchema = z.object({
   paypalEmail: z.string().email().or(z.literal('')).optional(),
 });
 
+export const zoneTextSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  signTitle: z.string().trim().min(1).max(80),
+  signSubtitle: z.string().trim().max(80),
+});
+
+export const zonesSchema = z.object({
+  lobby: zoneTextSchema,
+  drawings: zoneTextSchema,
+  crafts: zoneTextSchema,
+  scans: zoneTextSchema,
+  export: zoneTextSchema,
+});
+
 export const inquirySchema = z.object({
   artworkId: z.string().optional().nullable(),
   name: z.string().min(1).max(120),
